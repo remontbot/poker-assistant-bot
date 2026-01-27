@@ -25,7 +25,8 @@ from config import (
     States,
     EMOJI,
     STAGES,
-    POSITIONS_SHORT
+    POSITIONS_SHORT,
+    ALLOWED_USERS
 )
 from database import get_or_create_user, save_hand, get_user_stats
 from utils.keyboards import (
@@ -61,11 +62,68 @@ from poker_logic.equity import (
 # Настройка логирования
 logger = setup_logging()
 
+# Сообщение об отказе в доступе
+ACCESS_DENIED_MESSAGE = """
+🚫 **Доступ запрещён.**
+
+Этот бот находится в закрытом тестировании.
+"""
+
+
+# ================== ПРОВЕРКА ДОСТУПА ==================
+
+def check_access(update: Update) -> bool:
+    """
+    Проверяет, есть ли у пользователя доступ к боту.
+
+    Args:
+        update: Объект Update от Telegram
+
+    Returns:
+        True если доступ разрешён, False если запрещён
+    """
+    user = update.effective_user
+    if not user:
+        return False
+
+    user_id = user.id
+
+    # Если список пустой — доступ открыт всем (для разработки)
+    if not ALLOWED_USERS:
+        return True
+
+    if user_id not in ALLOWED_USERS:
+        # Логируем попытку несанкционированного доступа
+        logger.warning(
+            f"Unauthorized access attempt from user_id: {user_id}, "
+            f"username: @{user.username or 'unknown'}, "
+            f"name: {user.first_name or 'unknown'}"
+        )
+        return False
+
+    return True
+
+
+async def send_access_denied(update: Update) -> None:
+    """Отправляет сообщение об отказе в доступе."""
+    if update.callback_query:
+        await update.callback_query.answer("Доступ запрещён", show_alert=True)
+    elif update.message:
+        await update.message.reply_text(
+            ACCESS_DENIED_MESSAGE,
+            parse_mode="Markdown"
+        )
+
 
 # ================== КОМАНДЫ ==================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start — приветствие и главное меню."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return
+
     user = update.effective_user
 
     # Создаём/обновляем пользователя в БД
@@ -106,6 +164,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help — справка по боту."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return
+
     help_text = f"""
 {EMOJI['tip']} **Как пользоваться ботом**
 
@@ -149,6 +212,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stats — статистика пользователя."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return
+
     user = update.effective_user
     user_id = get_or_create_user(user.id, user.username, user.first_name)
 
@@ -209,6 +277,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_hand_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало новой раздачи — команда /new_hand."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     # Инициализируем данные раздачи
     context.user_data["hand"] = {
         "cards": [],
@@ -241,6 +314,11 @@ async def new_hand_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_hand_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало новой раздачи через callback."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -276,6 +354,11 @@ async def new_hand_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора карты."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -338,6 +421,11 @@ async def select_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_position(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора позиции."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -374,6 +462,11 @@ async def select_position(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_stage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора стадии."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -413,6 +506,11 @@ async def select_stage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора количества игроков."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -473,6 +571,11 @@ async def select_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def opponent_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка действия оппонента."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -562,6 +665,11 @@ async def opponent_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pot_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка выбора размера банка."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -595,6 +703,11 @@ async def pot_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pot_size_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка ввода размера банка текстом."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     try:
         pot_size = float(update.message.text.replace(",", "."))
         context.user_data["hand"]["pot_size"] = pot_size
@@ -758,6 +871,11 @@ async def show_recommendation_message(update: Update, context: ContextTypes.DEFA
 
 async def hero_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка действия героя."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -784,6 +902,11 @@ async def hero_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def hand_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка результата раздачи."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
@@ -863,6 +986,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка кнопок главного меню."""
+    # Проверка доступа
+    if not check_access(update):
+        await send_access_denied(update)
+        return ConversationHandler.END
+
     query = update.callback_query
     await query.answer()
 
