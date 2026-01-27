@@ -21,6 +21,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 # Режим отладки
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
+# Список разрешённых пользователей (Telegram ID)
+_allowed_users_str = os.getenv("ALLOWED_USERS", "")
+ALLOWED_USERS = [
+    int(uid.strip())
+    for uid in _allowed_users_str.split(",")
+    if uid.strip().isdigit()
+]
+
 # Путь к базе данных
 DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "poker.db"))
 
