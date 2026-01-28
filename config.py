@@ -81,17 +81,52 @@ EMOJI = {
     "think": "🤔"
 }
 
-# Состояния ConversationHandler
+# Типы оппонентов
+OPPONENT_TYPES = {
+    "unknown": {"name": "❓ Unknown", "vpip": 25, "pfr": 18, "fold_to_3bet": 55},
+    "fish": {"name": "🐟 Fish", "vpip": 45, "pfr": 10, "fold_to_3bet": 30},
+    "reg": {"name": "🎮 Reg", "vpip": 22, "pfr": 18, "fold_to_3bet": 58},
+    "nit": {"name": "🧊 Nit", "vpip": 12, "pfr": 10, "fold_to_3bet": 70},
+    "lag": {"name": "🔥 LAG", "vpip": 30, "pfr": 25, "fold_to_3bet": 45},
+    "maniac": {"name": "🎰 Maniac", "vpip": 50, "pfr": 35, "fold_to_3bet": 25},
+}
+
+# Линии (ситуации)
+LINES = {
+    "rfi": "RFI (открытие)",
+    "vs_open": "vs Open",
+    "vs_3bet": "vs 3-bet",
+    "vs_4bet": "vs 4-bet",
+    "limp": "Limp pot",
+    "bb_vs_sb": "BB vs SB",
+    "multiway": "Multiway (3+)",
+}
+
+# Пресеты стеков (в bb)
+STACK_PRESETS = [20, 50, 100, 150, 200]
+
+# Состояния ConversationHandler v2.0
 class States:
+    # Новый упрощённый flow
     SELECT_CARDS = 0
     SELECT_POSITION = 1
-    SELECT_STAGE = 2
-    SELECT_PLAYERS = 3
-    OPPONENT_ACTIONS = 4
-    POT_SIZE = 5
-    MY_ACTION = 6
-    RESULT = 7
-    WINNER_CARDS = 8
+    SELECT_STACK = 2
+    SELECT_LINE = 3
+    SELECT_OPPONENT = 4
+    FACING_BET = 5
+    SHOW_RECOMMENDATION = 6
+    # Postflop (если продолжаем)
+    POSTFLOP_BOARD = 7
+    POSTFLOP_ACTION = 8
+    # Результат
+    RESULT = 9
+    # Legacy (для совместимости)
+    SELECT_STAGE = 10
+    SELECT_PLAYERS = 11
+    OPPONENT_ACTIONS = 12
+    POT_SIZE = 13
+    MY_ACTION = 14
+    WINNER_CARDS = 15
 
 
 def validate_config():

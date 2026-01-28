@@ -370,3 +370,343 @@ def quick_equity_estimate(
     multiplier = 1 / (1 + 0.15 * (num_opponents - 1))
 
     return base_equity * multiplier
+
+
+# ================== V2.0 RECOMMENDATION ==================
+
+def get_recommendation_v2(
+    hero_cards: List[str],
+    hero_position: str,
+    stack_bb: float,
+    line: str,
+    opponent_type: str,
+    facing_bet: float = 0,
+    aggressor_position: str = None
+) -> Dict:
+    """
+    Получить рекомендацию v2.0 с частотами, confidence и blockers.
+
+    Args:
+        hero_cards: Карты героя
+        hero_position: Позиция героя
+        stack_bb: Эффективный стек в bb
+        line: Тип линии (rfi, vs_open, vs_3bet, etc.)
+        opponent_type: Тип оппонента
+        facing_bet: Размер ставки, которую фейсим
+        aggressor_position: Позиция агрессора
+
+    Returns:
+        Dict с полной рекомендацией
+    """
+    from utils.helpers import get_hand_rank_percentile, get_hand_notation, get_hand_description
+    from .blockers import analyze_blockers, get_blocker_adjustment
+
+    # Базовая информация о руке
+    notation = get_hand_notation(hero_cards)
+    percentile = get_hand_rank_percentile(hero_cards)
+    description = get_hand_description(hero_cards)
+
+    # Анализ блокеров
+    blocker_analysis = analyze_blockers(hero_cards)
+    blocker_adj, blocker_reason = get_blocker_adjustment(hero_cards, "3bet")
+
+    # Параметры оппонента
+    opponent_params = {
+        "unknown": {"open_range": 20, "fold_to_3bet": 55, "4bet_range": 5},
+        "fish": {"open_range": 35, "fold_to_3bet": 30, "4bet_range": 3},
+        "reg": {"open_range": 18, "fold_to_3bet": 58, "4bet_range": 6},
+        "nit": {"open_range": 10, "fold_to_3bet": 70, "4bet_range": 3},
+        "lag": {"open_range": 28, "fold_to_3bet": 45, "4bet_range": 10},
+        "maniac": {"open_range": 45, "fold_to_3bet": 25, "4bet_range": 15},
+    }
+
+    opp = opponent_params.get(opponent_type, opponent_params["unknown"])
+
+    # Расчёт SPR
+    pot_estimate = 1.5 if line == "rfi" else (facing_bet * 2 + 1.5)
+    spr = stack_bb / pot_estimate if pot_estimate > 0 else 100
+
+    # Определяем позицию агрессора
+    if aggressor_position is None:
+        aggressor_position = "MP"  # По умолчанию
+
+    # Расчёт эквити
+    if line == "rfi":
+        # Открытие - не нужен расчёт против диапазона
+        equity = percentile
+        pot_odds = 0
+    else:
+        # vs action - считаем против диапазона агрессора
+        equity, _ = calculate_equity_vs_position(
+            hero_cards,
+            aggressor_position,
+            "open",
+            500
+        )
+        pot_odds = calculate_pot_odds(pot_estimate, facing_bet) if facing_bet > 0 else 0
+
+    # Базовые частоты по линии и силе руки
+    if line == "rfi":
+        frequencies = _get_rfi_frequencies(hero_position, percentile)
+        primary_action = "raise" if frequencies["raise"] > 50 else "fold"
+    elif line == "vs_open":
+        frequencies = _get_vs_open_frequencies(
+            hero_position, aggressor_position, percentile, opp, blocker_adj
+        )
+        if frequencies["raise"] >= frequencies["call"] and frequencies["raise"] >= frequencies["fold"]:
+            primary_action = "raise"
+        elif frequencies["call"] >= frequencies["fold"]:
+            primary_action = "call"
+        else:
+            primary_action = "fold"
+    elif line == "vs_3bet":
+        frequencies = _get_vs_3bet_frequencies(percentile, opp, stack_bb)
+        if frequencies["raise"] >= frequencies["call"] and frequencies["raise"] >= frequencies["fold"]:
+            primary_action = "raise"
+        elif frequencies["call"] >= frequencies["fold"]:
+            primary_action = "call"
+        else:
+            primary_action = "fold"
+    elif line == "vs_4bet":
+        frequencies = _get_vs_4bet_frequencies(percentile, stack_bb)
+        primary_action = "call" if frequencies["call"] > frequencies["fold"] else "fold"
+    else:
+        # Default
+        frequencies = {"raise": 30, "call": 40, "fold": 30}
+        primary_action = "call"
+
+    # Расчёт confidence
+    confidence = _calculate_confidence(percentile, opponent_type, line)
+
+    # Расчёт примерного EV
+    ev_estimate = _estimate_ev(
+        equity, pot_estimate, facing_bet, frequencies, opp["fold_to_3bet"]
+    )
+
+    # Формируем reasons
+    reasons = []
+    reasons.append(f"{notation} — {description}")
+    reasons.append(f"Топ {100 - percentile:.0f}% рук")
+
+    if line != "rfi":
+        reasons.append(f"Range {aggressor_position}: ~{opp['open_range']}%")
+        reasons.append(f"Equity vs range: {equity:.0f}%")
+
+    if blocker_analysis["effect"] != "none":
+        reasons.append(blocker_analysis["effect_text"])
+
+    if spr < 4:
+        reasons.append(f"⚠️ Low SPR ({spr:.1f}) — commit or fold")
+    elif spr > 15:
+        reasons.append(f"Deep SPR ({spr:.1f}) — room to maneuver")
+
+    # If/then советы
+    if_then = []
+    if line == "vs_open" and frequencies["raise"] > 30:
+        if_then.append(f"Если 4-bet < {stack_bb * 0.2:.0f}bb → Call")
+        if_then.append(f"Если 4-bet > {stack_bb * 0.25:.0f}bb → Fold (без AA/KK)")
+    if line == "vs_3bet":
+        if_then.append("При AI → считай pot odds")
+
+    # Opponent-specific advice
+    opp_advice = _get_opponent_advice(opponent_type, primary_action, percentile)
+
+    return {
+        "hand": notation,
+        "description": description,
+        "percentile": percentile,
+        "primary_action": primary_action,
+        "frequencies": frequencies,
+        "confidence": confidence,
+        "confidence_pct": int(confidence * 100),
+        "equity": equity,
+        "pot_odds": pot_odds,
+        "spr": spr,
+        "ev_estimate": ev_estimate,
+        "blockers": blocker_analysis,
+        "reasons": reasons,
+        "if_then": if_then,
+        "opponent_advice": opp_advice,
+        "opponent_type": opponent_type,
+        "line": line
+    }
+
+
+def _get_rfi_frequencies(position: str, percentile: float) -> Dict[str, int]:
+    """Частоты для RFI (открытия)."""
+    # Пороги для RFI по позициям (процентиль руки)
+    thresholds = {
+        "UTG": 85,  # Топ 15%
+        "MP": 80,   # Топ 20%
+        "CO": 70,   # Топ 30%
+        "BTN": 55,  # Топ 45%
+        "SB": 60,   # Топ 40%
+        "BB": 100   # Не открываем из BB
+    }
+
+    threshold = thresholds.get(position, 75)
+
+    if percentile >= threshold:
+        return {"raise": 100, "call": 0, "fold": 0}
+    elif percentile >= threshold - 10:
+        return {"raise": 70, "call": 0, "fold": 30}
+    elif percentile >= threshold - 20:
+        return {"raise": 30, "call": 0, "fold": 70}
+    else:
+        return {"raise": 0, "call": 0, "fold": 100}
+
+
+def _get_vs_open_frequencies(
+    hero_pos: str,
+    villain_pos: str,
+    percentile: float,
+    opp_params: Dict,
+    blocker_adj: float
+) -> Dict[str, int]:
+    """Частоты для vs Open (3-bet или колл)."""
+    # Базовые пороги
+    three_bet_threshold = 90  # Топ 10% всегда 3bet
+    call_threshold = 70       # Топ 30% колл
+
+    # Корректировка на позицию
+    if hero_pos in ["BTN", "CO"]:
+        three_bet_threshold -= 10
+        call_threshold -= 10
+    elif hero_pos in ["SB", "BB"]:
+        call_threshold -= 5
+
+    # Корректировка на тип оппа
+    if opp_params["fold_to_3bet"] > 60:
+        three_bet_threshold -= 10  # Больше 3bet vs складывающегося
+
+    # Применяем blocker adjustment
+    three_bet_threshold -= blocker_adj
+
+    if percentile >= three_bet_threshold:
+        return {"raise": 85, "call": 15, "fold": 0}
+    elif percentile >= three_bet_threshold - 10:
+        return {"raise": 50, "call": 40, "fold": 10}
+    elif percentile >= call_threshold:
+        return {"raise": 15, "call": 65, "fold": 20}
+    elif percentile >= call_threshold - 15:
+        return {"raise": 5, "call": 40, "fold": 55}
+    else:
+        return {"raise": 0, "call": 10, "fold": 90}
+
+
+def _get_vs_3bet_frequencies(
+    percentile: float,
+    opp_params: Dict,
+    stack_bb: float
+) -> Dict[str, int]:
+    """Частоты для vs 3-bet (4-bet или колл)."""
+    # Только премиум 4-бетит
+    if percentile >= 97:  # AA, KK
+        return {"raise": 70, "call": 30, "fold": 0}
+    elif percentile >= 93:  # QQ, AKs
+        return {"raise": 40, "call": 50, "fold": 10}
+    elif percentile >= 85:  # JJ, TT, AK
+        return {"raise": 15, "call": 60, "fold": 25}
+    elif percentile >= 75:
+        return {"raise": 5, "call": 45, "fold": 50}
+    else:
+        return {"raise": 0, "call": 15, "fold": 85}
+
+
+def _get_vs_4bet_frequencies(percentile: float, stack_bb: float) -> Dict[str, int]:
+    """Частоты для vs 4-bet."""
+    if percentile >= 99:  # AA
+        return {"raise": 60, "call": 40, "fold": 0}
+    elif percentile >= 97:  # KK
+        return {"raise": 30, "call": 60, "fold": 10}
+    elif percentile >= 93:  # QQ, AKs
+        return {"raise": 10, "call": 50, "fold": 40}
+    elif percentile >= 88 and stack_bb < 100:  # Short stack considerations
+        return {"raise": 5, "call": 35, "fold": 60}
+    else:
+        return {"raise": 0, "call": 10, "fold": 90}
+
+
+def _calculate_confidence(percentile: float, opponent_type: str, line: str) -> float:
+    """Рассчитать уровень уверенности в рекомендации."""
+    base = 0.5
+
+    # Сильные руки = выше confidence
+    if percentile >= 90:
+        base += 0.25
+    elif percentile >= 75:
+        base += 0.15
+    elif percentile >= 50:
+        base += 0.05
+
+    # Unknown оппонент снижает confidence
+    if opponent_type == "unknown":
+        base -= 0.15
+    elif opponent_type in ["fish", "maniac"]:
+        base -= 0.05  # Непредсказуемые
+
+    # Простые линии = выше confidence
+    if line == "rfi":
+        base += 0.1
+    elif line == "vs_4bet":
+        base += 0.1  # Очевидные решения
+
+    return min(max(base, 0.3), 0.95)
+
+
+def _estimate_ev(
+    equity: float,
+    pot: float,
+    facing_bet: float,
+    frequencies: Dict,
+    fold_to_3bet: float
+) -> float:
+    """Примерная оценка EV (упрощённая)."""
+    if frequencies["raise"] > 50:
+        # EV 3-бета учитывает fold equity
+        fold_eq_ev = (fold_to_3bet / 100) * pot
+        call_ev = (1 - fold_to_3bet / 100) * (equity / 100 * (pot + facing_bet * 2) - facing_bet * 2)
+        return fold_eq_ev + call_ev
+    elif frequencies["call"] > 50:
+        # EV колла
+        return (equity / 100) * (pot + facing_bet) - facing_bet
+    else:
+        return 0
+
+
+def _get_opponent_advice(opponent_type: str, action: str, percentile: float) -> str:
+    """Совет, учитывающий тип оппонента."""
+    advices = {
+        "fish": {
+            "raise": "🐟 vs Fish: value bet широко, он заколлит хуже",
+            "call": "🐟 vs Fish: можно колл шире, implied odds хорошие",
+            "fold": "🐟 vs Fish: даже фиши иногда имеют руку"
+        },
+        "reg": {
+            "raise": "🎮 vs Reg: стандартный 3-bet, он понимает игру",
+            "call": "🎮 vs Reg: осторожно постфлоп, он умеет давить",
+            "fold": "🎮 vs Reg: правильный фолд, не переплачивай"
+        },
+        "nit": {
+            "raise": "🧊 vs Nit: он сфолдит много, но 4-bet = AA/KK",
+            "call": "🧊 vs Nit: осторожно, его range узкий",
+            "fold": "🧊 vs Nit: он открывает только премиум"
+        },
+        "lag": {
+            "raise": "🔥 vs LAG: 3-bet для изоляции и value",
+            "call": "🔥 vs LAG: готовься к pressure постфлоп",
+            "fold": "🔥 vs LAG: иногда лучше дождаться спота получше"
+        },
+        "maniac": {
+            "raise": "🎰 vs Maniac: value 3-bet, он не сфолдит",
+            "call": "🎰 vs Maniac: trap с сильными, он сам повесится",
+            "fold": "🎰 vs Maniac: даже маньяки попадают в натсы"
+        },
+        "unknown": {
+            "raise": "❓ Unknown: играй GTO, наблюдай за реакцией",
+            "call": "❓ Unknown: стандартная игра пока",
+            "fold": "❓ Unknown: без инфы не рискуй"
+        }
+    }
+
+    return advices.get(opponent_type, advices["unknown"]).get(action, "")

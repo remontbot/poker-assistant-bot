@@ -11,7 +11,10 @@
 from typing import List, Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import SUITS, RANKS, POSITIONS_SHORT, STAGES, ACTIONS, EMOJI
+from config import (
+    SUITS, RANKS, POSITIONS_SHORT, STAGES, ACTIONS, EMOJI,
+    OPPONENT_TYPES, LINES, STACK_PRESETS
+)
 
 
 def get_cards_keyboard(
@@ -479,5 +482,198 @@ def get_after_hand_keyboard() -> InlineKeyboardMarkup:
             )
         ]
     ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ================== V2.0 KEYBOARDS ==================
+
+def get_stack_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора эффективного стека.
+
+    Returns:
+        InlineKeyboardMarkup с пресетами стеков
+    """
+    keyboard = []
+
+    # Пресеты стеков
+    row1 = [
+        InlineKeyboardButton(f"{s}bb", callback_data=f"stack:{s}")
+        for s in [20, 50, 100]
+    ]
+    row2 = [
+        InlineKeyboardButton(f"{s}bb", callback_data=f"stack:{s}")
+        for s in [150, 200, 250]
+    ]
+
+    keyboard.append(row1)
+    keyboard.append(row2)
+    keyboard.append([
+        InlineKeyboardButton("📝 Другой", callback_data="stack:custom")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("❌ Отмена", callback_data="cancel")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_line_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора линии/ситуации.
+
+    Returns:
+        InlineKeyboardMarkup с линиями
+    """
+    keyboard = [
+        # Основные линии
+        [
+            InlineKeyboardButton("🎯 RFI (открытие)", callback_data="line:rfi"),
+        ],
+        [
+            InlineKeyboardButton("⚔️ vs Open", callback_data="line:vs_open"),
+            InlineKeyboardButton("🔥 vs 3-bet", callback_data="line:vs_3bet"),
+        ],
+        [
+            InlineKeyboardButton("💥 vs 4-bet", callback_data="line:vs_4bet"),
+            InlineKeyboardButton("👥 Multiway", callback_data="line:multiway"),
+        ],
+        [
+            InlineKeyboardButton("🎲 Limp pot", callback_data="line:limp"),
+            InlineKeyboardButton("🆚 BB vs SB", callback_data="line:bb_vs_sb"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel")
+        ]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_opponent_type_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора типа оппонента.
+
+    Returns:
+        InlineKeyboardMarkup с типами оппов
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("❓ Unknown", callback_data="opponent:unknown"),
+            InlineKeyboardButton("🐟 Fish", callback_data="opponent:fish"),
+        ],
+        [
+            InlineKeyboardButton("🎮 Reg", callback_data="opponent:reg"),
+            InlineKeyboardButton("🧊 Nit", callback_data="opponent:nit"),
+        ],
+        [
+            InlineKeyboardButton("🔥 LAG", callback_data="opponent:lag"),
+            InlineKeyboardButton("🎰 Maniac", callback_data="opponent:maniac"),
+        ],
+        [
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel")
+        ]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_facing_bet_keyboard(line: str = "vs_open") -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора размера ставки, которую фейсим.
+
+    Args:
+        line: Тип линии для подбора пресетов
+
+    Returns:
+        InlineKeyboardMarkup
+    """
+    # Разные пресеты для разных линий
+    if line == "vs_open":
+        presets = [2, 2.5, 3, 3.5, 4, 5]
+    elif line == "vs_3bet":
+        presets = [7, 8, 9, 10, 12, 15]
+    elif line == "vs_4bet":
+        presets = [18, 20, 22, 25, 30, "AI"]
+    else:
+        presets = [2, 3, 4, 5, 6, 8]
+
+    keyboard = []
+
+    # Первый ряд
+    row1 = []
+    for p in presets[:3]:
+        label = f"{p}bb" if isinstance(p, (int, float)) else str(p)
+        value = p if isinstance(p, (int, float)) else 0
+        row1.append(InlineKeyboardButton(label, callback_data=f"facing:{value}"))
+    keyboard.append(row1)
+
+    # Второй ряд
+    row2 = []
+    for p in presets[3:]:
+        label = f"{p}bb" if isinstance(p, (int, float)) else str(p)
+        value = p if isinstance(p, (int, float)) else 0
+        row2.append(InlineKeyboardButton(label, callback_data=f"facing:{value}"))
+    keyboard.append(row2)
+
+    keyboard.append([
+        InlineKeyboardButton("📝 Другой", callback_data="facing:custom")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("❌ Отмена", callback_data="cancel")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_recommendation_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура после показа рекомендации.
+
+    Returns:
+        InlineKeyboardMarkup
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("📝 Сохранить", callback_data="rec:save"),
+            InlineKeyboardButton("🔄 Новая", callback_data="menu:new_hand"),
+        ],
+        [
+            InlineKeyboardButton("📊 Postflop →", callback_data="rec:postflop"),
+        ],
+        [
+            InlineKeyboardButton("🏠 Меню", callback_data="menu:main")
+        ]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_aggressor_position_keyboard(hero_position: str) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для выбора позиции агрессора.
+
+    Args:
+        hero_position: Позиция героя (исключаем её)
+
+    Returns:
+        InlineKeyboardMarkup
+    """
+    keyboard = []
+
+    positions = [p for p in POSITIONS_SHORT if p != hero_position]
+
+    # Группируем по 3
+    for i in range(0, len(positions), 3):
+        row = [
+            InlineKeyboardButton(p, callback_data=f"aggressor:{p}")
+            for p in positions[i:i+3]
+        ]
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("❌ Отмена", callback_data="cancel")
+    ])
 
     return InlineKeyboardMarkup(keyboard)
